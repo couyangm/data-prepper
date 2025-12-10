@@ -235,7 +235,7 @@ public class KafkaCustomProducer<T> {
         return (metadata, exception) -> {
             if (null != exception) {
                 LOG.error("Error occurred while publishing {}", exception.getMessage());
-                topicMetrics.getNumberOfRecordProcessingErrors().increment();
+                // topicMetrics.getNumberOfRecordProcessingErrors().increment();
             } else {
                 releaseEventHandles(true);
             }
