@@ -40,10 +40,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Collection;
-import java.util.LinkedList;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 
 /**
@@ -91,7 +91,7 @@ public class KafkaCustomProducer<T> {
         this.producer = producer;
         this.kafkaProducerConfig = kafkaProducerConfig;
         this.dlqSink = dlqSink;
-        this.bufferedEventHandles = new LinkedList<>();
+        this.bufferedEventHandles = new ConcurrentLinkedQueue<>();
         this.expressionEvaluator = expressionEvaluator;
         this.tagTargetKey = tagTargetKey;
         this.topicName = ObjectUtils.isEmpty(kafkaProducerConfig.getTopic()) ? null : kafkaProducerConfig.getTopic().getName();
