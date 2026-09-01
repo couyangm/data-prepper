@@ -51,6 +51,7 @@ public class LogHTTPService {
 
     // TODO: support other data-types as request body, e.g. json_lines, msgpack
     private final JsonCodec jsonCodec;
+    private final boolean acceptSingleObject;
     private final Buffer<Record<Log>> buffer;
     private final InputCodec codec;
     private final int bufferWriteTimeoutInMillis;
@@ -74,6 +75,7 @@ public class LogHTTPService {
         this.bufferWriteTimeoutInMillis = bufferWriteTimeoutInMillis;
         this.bufferMaxRequestLength = buffer.getMaxRequestSize().isPresent() ? buffer.getMaxRequestSize().get(): null;
         this.bufferOptimalRequestLength = buffer.getOptimalRequestSize().isPresent() ? buffer.getOptimalRequestSize().get(): null;
+        this.acceptSingleObject = acceptSingleObject;
         this.jsonCodec = new JsonCodec(acceptSingleObject);
         this.codec = codec;
         this.httpHeaderExtractor = httpHeaderExtractor;
@@ -124,7 +126,8 @@ public class LogHTTPService {
                     jsonCodec.validate(content);
                 } catch (IOException e) {
                     LOG.error("Failed to parse the request of size {} due to: {}", content.length(), e.getMessage());
-                    throw new IOException("Bad request data format. Needs to be json array.", e.getCause());
+                    String messageEnd = (acceptSingleObject) ? "array or object." : "array.";
+                    throw new IOException("Bad request data format. Needs to be json " + messageEnd, e.getCause());
                 }
 
                 try {
@@ -153,7 +156,8 @@ public class LogHTTPService {
                     jsonList = jsonCodec.parse(content);
                 } catch (IOException e) {
                     LOG.error("Failed to parse the request of size {} due to: {}", content.length(), e.getMessage());
-                    throw new IOException("Bad request data format. Needs to be json array.", e.getCause());
+                    String messageEnd = (acceptSingleObject) ? "array or object." : "array.";
+                    throw new IOException("Bad request data format. Needs to be json " + messageEnd, e.getCause());
                 }
 
                 records.addAll(

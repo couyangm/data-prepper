@@ -35,8 +35,10 @@ public class JsonCodec implements Codec<List<String>> {
             new TypeReference<List<Map<String, Object>>>() {
             };
     private static final JsonFactory JSON_FACTORY = new JsonFactory();
+    private final boolean acceptSingleObject;
 
     public JsonCodec(final boolean acceptSingleObject) {
+        this.acceptSingleObject = acceptSingleObject;
         if (acceptSingleObject) {
             this.mapper.configure(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY, true);
         }
@@ -81,11 +83,24 @@ public class JsonCodec implements Codec<List<String>> {
                                       final int splitLength) throws IOException {
 
         try (final JsonParser jsonParser = JSON_FACTORY.createParser(inputStream)) {
-            if (jsonParser.nextToken() != JsonToken.START_ARRAY) {
-                throw new RuntimeException("Input is not a valid JSON array.");
+            JsonArrayWriter jsonArrayWriter = new JsonArrayWriter(splitLength, serializedBodyConsumer);
+
+            if (jsonParser.nextToken() == JsonToken.START_OBJECT && acceptSingleObject) {
+                final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                final JsonGenerator objectJsonGenerator = JSON_FACTORY
+                        .createGenerator(outputStream, JsonEncoding.UTF8);
+                objectJsonGenerator.copyCurrentStructure(jsonParser);
+                objectJsonGenerator.close();
+
+                jsonArrayWriter.write(outputStream);
+                jsonArrayWriter.close();
+                return;
             }
 
-            JsonArrayWriter jsonArrayWriter = new JsonArrayWriter(mapper, splitLength, serializedBodyConsumer);
+            if (jsonParser.currentToken() != JsonToken.START_ARRAY) {
+                String messageEnd = (acceptSingleObject) ? "array or object." : "array.";
+                throw new RuntimeException("Input is not a valid JSON " + messageEnd);
+            }
 
             while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
                 final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -98,7 +113,7 @@ public class JsonCodec implements Codec<List<String>> {
                 if (jsonArrayWriter.willExceedByWriting(outputStream)) {
                     jsonArrayWriter.close();
 
-                    jsonArrayWriter = new JsonArrayWriter(mapper, splitLength, serializedBodyConsumer);
+                    jsonArrayWriter = new JsonArrayWriter(splitLength, serializedBodyConsumer);
 
                 }
                 jsonArrayWriter.write(outputStream);
@@ -110,7 +125,7 @@ public class JsonCodec implements Codec<List<String>> {
 
 
     private static class JsonArrayWriter {
-        private final JsonFactory JSON_FACTORY = new JsonFactory();
+        private static final JsonFactory JSON_FACTORY = new JsonFactory().setCodec(new ObjectMapper());
         private static final int BUFFER_SIZE = 16 * 1024;
         private static final String NECESSARY_CHARACTERS_TO_WRITE = ",]";
         private final CountingOutputStream countingOutputStream;
@@ -120,12 +135,12 @@ public class JsonCodec implements Codec<List<String>> {
         private final JsonGenerator generator;
         private boolean hasItem = false;
 
-        JsonArrayWriter(final ObjectMapper mapper, final int splitLength, final Consumer<String> serializedBodyConsumer) throws IOException {
+        JsonArrayWriter(final int splitLength, final Consumer<String> serializedBodyConsumer) throws IOException {
             outputStream = new ByteArrayOutputStream(Math.min(splitLength, BUFFER_SIZE));
             countingOutputStream = new CountingOutputStream(outputStream);
             this.splitLength = splitLength;
             this.serializedBodyConsumer = serializedBodyConsumer;
-            generator = JSON_FACTORY.setCodec(mapper).createGenerator(countingOutputStream, JsonEncoding.UTF8);
+            generator = JSON_FACTORY.createGenerator(countingOutputStream, JsonEncoding.UTF8);
             generator.writeStartArray();
         }
 
