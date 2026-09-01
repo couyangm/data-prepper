@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.io.CountingOutputStream;
 import com.linecorp.armeria.common.HttpData;
@@ -29,14 +30,27 @@ import java.util.function.Consumer;
  * TODO: replace output List&lt;String&gt; with List&lt;InternalModel&gt; type
  */
 public class JsonCodec implements Codec<List<String>> {
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper();
+    private static final TypeReference<List<Map<String, Object>>> LIST_OF_MAP_TYPE_REFERENCE =
+            new TypeReference<List<Map<String, Object>>>() {
+            };
     private static final JsonFactory JSON_FACTORY = new JsonFactory();
 
+    public JsonCodec(final boolean acceptSingleObject) {
+        if (acceptSingleObject) {
+            this.mapper.configure(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY, true);
+        }
+    }
+
+    public JsonCodec() {
+        this(false);
+    }
 
     @Override
     public List<String> parse(final HttpData httpData) throws IOException {
         final List<String> jsonList = new ArrayList<>();
-        final List<Map<String, Object>> logList = readHttpData(httpData);
+        final List<Map<String, Object>> logList = mapper.readValue(httpData.toInputStream(),
+                LIST_OF_MAP_TYPE_REFERENCE);
         for (final Map<String, Object> log : logList) {
             final String recordString = mapper.writeValueAsString(log);
             jsonList.add(recordString);
@@ -47,7 +61,8 @@ public class JsonCodec implements Codec<List<String>> {
 
     @Override
     public void validate(final HttpData content) throws IOException {
-        readHttpData(content);
+        mapper.readValue(content.toInputStream(),
+                LIST_OF_MAP_TYPE_REFERENCE);
     }
 
     @Override
@@ -61,16 +76,6 @@ public class JsonCodec implements Codec<List<String>> {
     }
 
 
-    private List<Map<String, Object>> readHttpData(final HttpData httpData) throws IOException {
-        try {
-            return mapper.readValue(httpData.toInputStream(), new TypeReference<List<Map<String, Object>>>() {});
-        } catch (IOException e) {
-            final List<Map<String, Object>> logList = new ArrayList<>();
-            logList.add(mapper.readValue(httpData.toInputStream(), new TypeReference<Map<String, Object>>() {}));
-            return logList;
-        }
-    }
-
     private void performSerialization(final InputStream inputStream,
                                       final Consumer<String> serializedBodyConsumer,
                                       final int splitLength) throws IOException {
@@ -80,7 +85,7 @@ public class JsonCodec implements Codec<List<String>> {
                 throw new RuntimeException("Input is not a valid JSON array.");
             }
 
-            JsonArrayWriter jsonArrayWriter = new JsonArrayWriter(splitLength, serializedBodyConsumer);
+            JsonArrayWriter jsonArrayWriter = new JsonArrayWriter(mapper, splitLength, serializedBodyConsumer);
 
             while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
                 final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -93,7 +98,7 @@ public class JsonCodec implements Codec<List<String>> {
                 if (jsonArrayWriter.willExceedByWriting(outputStream)) {
                     jsonArrayWriter.close();
 
-                    jsonArrayWriter = new JsonArrayWriter(splitLength, serializedBodyConsumer);
+                    jsonArrayWriter = new JsonArrayWriter(mapper, splitLength, serializedBodyConsumer);
 
                 }
                 jsonArrayWriter.write(outputStream);
@@ -105,7 +110,7 @@ public class JsonCodec implements Codec<List<String>> {
 
 
     private static class JsonArrayWriter {
-        private static final JsonFactory JSON_FACTORY = new JsonFactory().setCodec(mapper);
+        private final JsonFactory JSON_FACTORY = new JsonFactory();
         private static final int BUFFER_SIZE = 16 * 1024;
         private static final String NECESSARY_CHARACTERS_TO_WRITE = ",]";
         private final CountingOutputStream countingOutputStream;
@@ -115,12 +120,12 @@ public class JsonCodec implements Codec<List<String>> {
         private final JsonGenerator generator;
         private boolean hasItem = false;
 
-        JsonArrayWriter(final int splitLength, final Consumer<String> serializedBodyConsumer) throws IOException {
+        JsonArrayWriter(final ObjectMapper mapper, final int splitLength, final Consumer<String> serializedBodyConsumer) throws IOException {
             outputStream = new ByteArrayOutputStream(Math.min(splitLength, BUFFER_SIZE));
             countingOutputStream = new CountingOutputStream(outputStream);
             this.splitLength = splitLength;
             this.serializedBodyConsumer = serializedBodyConsumer;
-            generator = JSON_FACTORY.createGenerator(countingOutputStream, JsonEncoding.UTF8);
+            generator = JSON_FACTORY.setCodec(mapper).createGenerator(countingOutputStream, JsonEncoding.UTF8);
             generator.writeStartArray();
         }
 
